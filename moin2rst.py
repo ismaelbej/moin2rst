@@ -8,22 +8,24 @@
 import sys
 import re
 import os
+import shutil
+import tempfile
 
 from optparse import OptionParser, OptionGroup
+from distutils.version import LooseVersion
 
-from MoinMoin.request.request_cli import Request as RequestCLI
+import MoinMoin
+import MoinMoin.version
+MOIN_VERSION = LooseVersion(MoinMoin.version.release)
+
+if MOIN_VERSION >= "1.9":
+    sys.path.append(os.path.join(os.path.dirname(MoinMoin.__file__),
+                                 'support'))
+
 from MoinMoin.Page import Page
 from MoinMoin import wikiutil
 
-###############################################################################
-###############################################################################
-# Variables
-
-"""
-@var options: Options given on the command line
-@type options: optparse.Values
-"""
-global options
+WIKI_TEMPLATE_PATHS = ["/usr/share/moin"]
 
 ###############################################################################
 ###############################################################################
@@ -36,16 +38,15 @@ def parseOptions():
     @return: Name of the input page.
     @rtype: ( str, )
     """
-    global options
     optionParser = OptionParser(usage="usage: %prog [option]... <page>",
                                 description="""Convert a MoinMoin page to reStructuredText syntax.""")
 
     generalGroup = OptionGroup(optionParser, "General options")
     generalGroup.add_option("-d", "--directory",
-                            default=".", dest="directory",
+                            default=None, dest="directory",
                             help="""Directory where the configuration of the wiki lives.
 
-Defaults to ".".""")
+If not given, use a dummy wiki.""")
     generalGroup.add_option("-r", "--revision",
                             default=0, type=int, dest="revision",
                             help="""Revision of the page to fetch (1-based).
@@ -68,7 +69,7 @@ Defaults to the empty string.""")
     argument1Group = OptionGroup(optionParser, "page", """The page named "page" is used as input. Output is to stdout.""")
     optionParser.add_option_group(argument1Group)
 
-    ( options, args, ) = optionParser.parse_args()
+    options, args = optionParser.parse_args()
 
     if len(args) != 1:
         optionParser.error("Exactly one argument required")
@@ -81,33 +82,94 @@ Defaults to the empty string.""")
     if not options.revision:
         options.revision = None
 
-    return args
+    return options, args[0]
 
 ###############################################################################
 ###############################################################################
 # Now work
 
+def get_template_path():
+    for pth in WIKI_TEMPLATE_PATHS:
+        fn = os.path.join(pth, "config", "wikiconfig.py")
+        if os.path.exists(fn):
+            return pth
+    raise RuntimeError("Could not locate moinmoin config path")
+
+def create_temp_wiki(options, pagename, destdir):
+    options.directory = destdir
+
+    # Create a template wiki
+    template_path = get_template_path()
+    shutil.copytree(os.path.join(template_path, "data"), 
+                    os.path.join(destdir, "data"))
+    shutil.copytree(os.path.join(template_path, "underlay"), 
+                    os.path.join(destdir, "underlay"))
+
+    # Copy sample config
+    shutil.copyfile(os.path.join(template_path,
+                                 "config",
+                                 "wikiconfig.py"),
+                    os.path.join(destdir, "wikiconfig.py"))
+
+    # Copy the page over
+    pagedir = os.path.join(destdir, "data", "pages", "SomePage")
+    os.makedirs(os.path.join(pagedir, "revisions"))
+    with open(os.path.join(pagedir, "current"), "wb") as f:
+        f.write("00000001")
+    shutil.copyfile(pagename, os.path.join(pagedir, "revisions", "00000001"))
+
+    # Copy the plugin
+    rst_plugin = os.path.join(os.path.dirname(__file__), "text_x-rst.py")
+    shutil.copyfile(rst_plugin,
+                    os.path.join(destdir, "data",
+                                 "plugin", "formatter",
+                                 "text_x-rst.py"))
+
+def main():
+    options, pageName = parseOptions()
+
+    tmpdir = None
+
+    cwd = os.getcwd()
+    try:
+        if options.directory is None:
+            tmpdir = tempfile.mkdtemp()
+            create_temp_wiki(options, pageName, tmpdir)
+            pageName = "SomePage"
+
+        # Needed so relative paths in configuration are found
+        os.chdir(options.directory)
+        # Needed to load configuration
+        sys.path = [ os.getcwd(), ] + sys.path
+        url = re.sub("%", re.escape(pageName), options.url_template)
+
+        if MOIN_VERSION >= "1.9":
+            from MoinMoin.web.contexts import ScriptContext
+            class Request(ScriptContext):
+                def normalizePagename(self, name):
+                    return name
+        else:
+            from MoinMoin.request.request_cli import Request
+
+        request = Request(url=url, pagename=pageName)
+
+        Formatter = wikiutil.importPlugin(request.cfg, "formatter",
+                                          "text_x-rst", "Formatter")
+        formatter = Formatter(request)
+        request.formatter = formatter
+
+        page = Page(request, pageName, rev=options.revision, formatter=formatter)
+        if not page.exists():
+            raise RuntimeError("No page named %r" % ( pageName, ))
+
+        page.send_page()
+    finally:
+        if tmpdir is not None:
+            shutil.rmtree(tmpdir)
+        os.chdir(cwd)
+
 if __name__ == '__main__':
-    ( pageName, ) = parseOptions()
-
-    # Needed so relative paths in configuration are found
-    os.chdir(options.directory)
-    # Needed to load configuration
-    sys.path = [ os.getcwd(), ] + sys.path
-    url = re.sub("%", re.escape(pageName), options.url_template)
-
-    request = RequestCLI(url=url, pagename=pageName)
-
-    Formatter = wikiutil.importPlugin(request.cfg, "formatter",
-                                      "text_x-rst", "Formatter")
-    formatter = Formatter(request)
-    request.formatter = formatter
-
-    page = Page(request, pageName, rev=options.revision, formatter=formatter)
-    if not page.exists():
-        raise RuntimeError("No page named %r" % ( pageName, ))
-
-    page.send_page()
+    main()
 
 # TODO Extension for reStructuredText parser in MoinMoin:
 #
