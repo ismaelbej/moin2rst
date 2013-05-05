@@ -53,10 +53,7 @@ class LinkStyle(Style):
         self._url = url
         self._formatter = formatter
 
-    _reUrlPrefix = re.compile("^(%s):" % ( Parser.url_rule, ))
-    #_reAttachmentPrefix = re.compile("") #FIXME
-  # ^(%s):"
-   #                                  % ( "|".join(Parser.attach_rule), ))
+    _reUrlPrefix = re.compile("^(http|https):")
     _reWord = re.compile("^[-\w]+$")
 
     def getMarkup(self, description):
@@ -65,12 +62,18 @@ class LinkStyle(Style):
             url = url[1:]
             if description.startswith(u"#"):
                 description = description[1:]
-        if description == url:
+        if description.startswith('Anchor(') and description.endswith(')'):
+            anchor = description[7:-1]
+            return u""
+        elif description == url:
             if self._reUrlPrefix.search(description):
                 #and not self._reAttachmentPrefix.search(description)):
                 # Plain URL
                 return u"%s" % ( description, )
+            url = self._formatter.request.normalizePageURL(description, url)
+            return u"`%s <%s>`__" % ( description, url, )
         else:
+            return u"`%s <%s>`__" % ( description, url, )
             # If description is not the URL then it needs mapping
             found = [ pair
                       for pair in self._formatter._description_urls
@@ -83,12 +86,6 @@ class LinkStyle(Style):
             else:
                 # Collision
                 return u"`%s <%s>`__" % ( description, url, )
-        if self._reWord.search(description):
-            # Single word
-            return u"%s_" % ( description, )
-        else:
-            # Multiple words
-            return u"`%s`_" % ( description, )
 
 ###############################################################################
 
@@ -501,6 +498,7 @@ class Formatter(FormatterBase):
                 # Children and their children differ below the parent element
                 url = u"%s%s" % ( wikiutil.CHILD_PREFIX, "/".join(urlPath), )
 
+            url = self.request.normalizePageURL(pagename, url)
             anchor = kw.get('anchor', "")
             if anchor:
                 url = u"%s#%s" % ( url, anchor, )

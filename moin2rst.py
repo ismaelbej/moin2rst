@@ -159,14 +159,17 @@ def main():
         url = re.sub("%", re.escape(pageName), options.url_template)
 
         if MOIN_VERSION >= "1.9":
-            from MoinMoin.web.contexts import ScriptContext
-            class Request(ScriptContext):
-                def normalizePagename(self, name):
-                    return name
+            from MoinMoin.web.contexts import ScriptContext as Request
         else:
             from MoinMoin.request.request_cli import Request
 
-        request = Request(url=url, pagename=pageName)
+        class MyRequest(Request):
+            def normalizePagename(self, name):
+                return name
+            def normalizePageURL(self, name, url):
+                return options.url_template.replace('%', name)
+
+        request = MyRequest(url=url, pagename=pageName)
 
         Formatter = wikiutil.importPlugin(request.cfg, "formatter",
                                           "text_x-rst", "Formatter")
