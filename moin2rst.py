@@ -121,6 +121,18 @@ def create_temp_wiki(options, pagename, destdir):
         f.write("00000001")
     shutil.copyfile(pagename, os.path.join(pagedir, "revisions", "00000001"))
 
+    # Convert old link syntax
+    pagefn = os.path.join(pagedir, "revisions", "00000001")
+    with open(pagefn, 'rb') as f:
+        data = f.read()
+
+    data = re.sub(br'\[(http.+?)\s+(.+?)\]', br'[[\1|\2]]', data)
+    data = re.sub(br'\["(.+?)"\]', br'[[\1]]', data)
+    data = re.sub(br'\[([A-Z][a-zA-Z0-9]+)\]', br'[[\1]]', data)
+
+    with open(pagefn, 'wb') as f:
+        f.write(data)
+
     # Copy the plugin
     rst_plugin = os.path.join(os.path.dirname(__file__), "text_x-rst.py")
     shutil.copyfile(rst_plugin,
