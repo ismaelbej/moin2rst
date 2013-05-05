@@ -10,6 +10,9 @@ import re
 import os
 import shutil
 import tempfile
+import logging
+
+logging.disable(logging.WARNING)
 
 from optparse import OptionParser, OptionGroup
 from distutils.version import LooseVersion
