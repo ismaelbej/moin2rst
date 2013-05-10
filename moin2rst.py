@@ -126,7 +126,7 @@ def create_temp_wiki(options, pagename, destdir):
     with open(pagefn, 'rb') as f:
         data = f.read()
 
-    data = re.sub(br'\[(http.+?)\s+(.+?)\]', br'[[\1|\2]]', data)
+    data = re.sub(br'\[(http[^\s]+?)\s+(.+?)\]', br'[[\1|\2]]', data)
     data = re.sub(br'\["(.+?)"\]', br'[[\1]]', data)
     data = re.sub(br'\[([A-Z][a-zA-Z0-9]+)\]', br'[[\1]]', data)
 
