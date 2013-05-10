@@ -1,5 +1,22 @@
 #! /usr/bin/env python
 # -*- coding: iso-8859-1 -*-
+r"""
+moin2rst.py [OPTIONS] [PAGENAME]
+
+Convert a MoinMoin page to reStructuredText syntax. Example:
+
+    moin2rst.py -u http://wiki.scipy.org/% page.txt > output.rst
+
+Where page.txt contains the raw MoinMoin page source.  This uses a temporary
+dummy wiki configuration.
+
+If you have the full wiki and its configuration downloaded, you can do
+
+    moin2rst.py -u http://wiki.scipy.org/% -d /path/to/wiki SomePage > out.rst
+
+Moin versions 1.8 and 1.9 probably should work.
+
+"""
 
 ###############################################################################
 ###############################################################################
@@ -14,7 +31,7 @@ import logging
 
 logging.disable(logging.WARNING)
 
-from optparse import OptionParser, OptionGroup
+from argparse import ArgumentParser
 from distutils.version import LooseVersion
 
 import MoinMoin
@@ -35,57 +52,39 @@ WIKI_TEMPLATE_PATHS = ["/usr/share/moin"]
 # Functions
 
 def parseOptions():
-    """
-    Sets options and returns arguments.
+    parser = ArgumentParser(usage=__doc__.rstrip().replace('%', '%%'))
 
-    @return: Name of the input page.
-    @rtype: ( str, )
-    """
-    optionParser = OptionParser(usage="usage: %prog [option]... <page>",
-                                description="""Convert a MoinMoin page to reStructuredText syntax.""")
+    parser.add_argument("-d", "--directory", default=None, dest="directory",
+                        help="Directory where the configuration of the wiki lives. "
+                             "If not given, use a dummy wiki.")
+    parser.add_argument("-r", "--revision", default=0, type=int, dest="revision",
+                        help="Revision of the page to fetch (1-based). "
+                             "Defaults to current revision.")
+    parser.add_argument("-u", "--url-template", default="", dest="url_template",
+                        help="If the wiki given by -d/--directory is part of a wiki "
+                             "farm then this gives a template to generate an URL "
+                             "from. The URL must be matched by one of the regular "
+                             "expressions found in the variable 'wikis' in the "
+                             "respective 'farmconfig.py'.\n"
+                             "\n"
+                             "'url-template' may contain at most one '%%'. The '%%' "
+                             "is replaced by 'page' to form a valid URL. If '%%' is "
+                             "omitted it is assumed at the end.\n"
+                             "\n"
+                             "Defaults to the empty string.")
+    parser.add_argument('page',
+                        help="The page named 'page' is used as input. Output is "
+                             "to stdout.")
+    args = parser.parse_args()
 
-    generalGroup = OptionGroup(optionParser, "General options")
-    generalGroup.add_option("-d", "--directory",
-                            default=None, dest="directory",
-                            help="""Directory where the configuration of the wiki lives.
-
-If not given, use a dummy wiki.""")
-    generalGroup.add_option("-r", "--revision",
-                            default=0, type=int, dest="revision",
-                            help="""Revision of the page to fetch (1-based).
-
-Defaults to current revision.""")
-    generalGroup.add_option("-u", "--url-template",
-                            default="", dest="url_template",
-                            help="""If the wiki given by -d/--directory is part of a wiki farm then this gives a
-template to generate an URL from. The URL must be matched by one of the regular
-expressions found in the variable "wikis" in the respective "farmconfig.py".
-
-"url-template" may contain at most one '%'. The '%' is replaced by "page"
-to form a valid URL. If '%' is omitted it is assumed at the end.
-
-Defaults to the empty string.""")
-    optionParser.add_option_group(generalGroup)
-
-    argumentGroup = OptionGroup(optionParser, "Arguments")
-    optionParser.add_option_group(argumentGroup)
-    argument1Group = OptionGroup(optionParser, "page", """The page named "page" is used as input. Output is to stdout.""")
-    optionParser.add_option_group(argument1Group)
-
-    options, args = optionParser.parse_args()
-
-    if len(args) != 1:
-        optionParser.error("Exactly one argument required")
-
-    percents = re.findall("%", options.url_template)
+    percents = re.findall("%", args.url_template)
     if len(percents) == 0:
-        options.url_template += "%"
+        args.url_template += "%"
     elif len(percents) > 1:
         optionParser.error("-u/--url-template must contain at most one '%'")
-    if not options.revision:
-        options.revision = None
-
-    return options, args[0]
+    if not args.revision:
+        args.revision = None
+    return args
 
 ###############################################################################
 ###############################################################################
@@ -98,8 +97,8 @@ def get_template_path():
             return pth
     raise RuntimeError("Could not locate moinmoin config path")
 
-def create_temp_wiki(options, pagename, destdir):
-    options.directory = destdir
+def create_temp_wiki(args, pagename, destdir):
+    args.directory = destdir
 
     # Create a template wiki
     template_path = get_template_path()
@@ -141,22 +140,22 @@ def create_temp_wiki(options, pagename, destdir):
                                  "text_x-rst.py"))
 
 def main():
-    options, pageName = parseOptions()
+    args = parseOptions()
 
     tmpdir = None
 
     cwd = os.getcwd()
     try:
-        if options.directory is None:
+        if args.directory is None:
             tmpdir = tempfile.mkdtemp()
-            create_temp_wiki(options, pageName, tmpdir)
-            pageName = "SomePage"
+            create_temp_wiki(args, args.page, tmpdir)
+            args.page = "SomePage"
 
         # Needed so relative paths in configuration are found
-        os.chdir(options.directory)
+        os.chdir(args.directory)
         # Needed to load configuration
         sys.path = [ os.getcwd(), ] + sys.path
-        url = re.sub("%", re.escape(pageName), options.url_template)
+        url = re.sub("%", re.escape(args.page), args.url_template)
 
         if MOIN_VERSION >= "1.9":
             from MoinMoin.web.contexts import ScriptContext as Request
@@ -167,18 +166,18 @@ def main():
             def normalizePagename(self, name):
                 return name
             def normalizePageURL(self, name, url):
-                return options.url_template.replace('%', name)
+                return args.url_template.replace('%', name)
 
-        request = MyRequest(url=url, pagename=pageName)
+        request = MyRequest(url=url, pagename=args.page)
 
         Formatter = wikiutil.importPlugin(request.cfg, "formatter",
                                           "text_x-rst", "Formatter")
         formatter = Formatter(request)
         request.formatter = formatter
 
-        page = Page(request, pageName, rev=options.revision, formatter=formatter)
+        page = Page(request, args.page, rev=args.revision, formatter=formatter)
         if not page.exists():
-            raise RuntimeError("No page named %r" % ( pageName, ))
+            raise RuntimeError("No page named %r" % ( args.page, ))
 
         page.send_page()
     finally:
