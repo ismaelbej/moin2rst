@@ -896,7 +896,7 @@ class Formatter(FormatterBase):
 
     # Dynamic stuff / plugins #################################################
     
-    def macro(self, macroObj, name, argString):
+    def macro(self, macroObj, name, argString, markup=None):
         """
         @type macroObj: wikimacro.Macro
         @param name: Name of the macro.
