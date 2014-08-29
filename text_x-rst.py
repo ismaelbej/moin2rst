@@ -3,13 +3,21 @@
 
     @copyright: 2008 Stefan Merten
     @license: GNU GPL, see COPYING for details.
+
 """
+# Modified for MoinMoin Version 1.9 by IanRiley 2012-01-04
 
 import re
 
-from MoinMoin.parser.text_moin_wiki import Parser
+#from MoinMoin.parser.wiki import Parser
 from MoinMoin.formatter import FormatterBase
-from MoinMoin import wikiutil
+from MoinMoin import config, wikiutil
+
+attachment_schemas = ["attachment", "inline", "drawing"]
+url_pattern = (u'http|https|ftp|nntp|news|mailto|telnet|wiki|file|' +
+               u'|'.join(attachment_schemas) + 
+              (config.url_schemas and u'|' + u'|'.join(config.url_schemas) or ''))
+
 
 # TODO Test with others than the standard MoinMoin "wiki" parser; in particular
 #      test with reStructuredText pages
@@ -53,7 +61,9 @@ class LinkStyle(Style):
         self._url = url
         self._formatter = formatter
 
-    _reUrlPrefix = re.compile("^(http|https):")
+    _reUrlPrefix = re.compile("^(%s):" % ( url_pattern, ))
+    _reAttachmentPrefix = re.compile("^(%s):"
+                                     % ( "|".join(attachment_schemas), ))
     _reWord = re.compile("^[-\w]+$")
 
     def getMarkup(self, description):
@@ -62,18 +72,12 @@ class LinkStyle(Style):
             url = url[1:]
             if description.startswith(u"#"):
                 description = description[1:]
-        if description.startswith('Anchor(') and description.endswith(')'):
-            anchor = description[7:-1]
-            return u""
-        elif description == url:
-            if self._reUrlPrefix.search(description):
-                #and not self._reAttachmentPrefix.search(description)):
+        if description == url:
+            if (self._reUrlPrefix.search(description)
+                and not self._reAttachmentPrefix.search(description)):
                 # Plain URL
                 return u"%s" % ( description, )
-            url = self._formatter.request.normalizePageURL(description, url)
-            return u"`%s <%s>`__" % ( description, url, )
         else:
-            return u"`%s <%s>`__" % ( description, url, )
             # If description is not the URL then it needs mapping
             found = [ pair
                       for pair in self._formatter._description_urls
@@ -86,6 +90,12 @@ class LinkStyle(Style):
             else:
                 # Collision
                 return u"`%s <%s>`__" % ( description, url, )
+        if self._reWord.search(description):
+            # Single word
+            return u"%s_" % ( description, )
+        else:
+            # Multiple words
+            return u"`%s`_" % ( description, )
 
 ###############################################################################
 
@@ -482,9 +492,11 @@ class Formatter(FormatterBase):
         if on:
             if not pagename and page:
                 pagename = page.page_name
-            url = self.request.normalizePagename(pagename)
+            # url = self.request.normalizePagename(pagename)
+            url = pagename # TODO find a 1.9 equiv for above, IanRiley
             urlPath = url.split("/")
-            thisPath = self.request.normalizePagename(self.page.page_name).split("/")
+            #thisPath = self.request.normalizePagename(self.page.page_name).split("/")
+            thisPath = self.page.page_name.split("/") # TODO find a 1.9 equiv for above, IanRiley
             while urlPath and thisPath and urlPath[0] == thisPath[0]:
                 # Delete common entries
                 urlPath.pop(0)
@@ -498,7 +510,6 @@ class Formatter(FormatterBase):
                 # Children and their children differ below the parent element
                 url = u"%s%s" % ( wikiutil.CHILD_PREFIX, "/".join(urlPath), )
 
-            url = self.request.normalizePageURL(pagename, url)
             anchor = kw.get('anchor', "")
             if anchor:
                 url = u"%s#%s" % ( url, anchor, )
@@ -534,7 +545,7 @@ class Formatter(FormatterBase):
         post = self._link(False)
         return pre + body + post
 
-    def attachment_link(self, url, text, **kw):
+    def attachment_link(self, on, url=None, text=None, **kw):
         return self._attachment(u"attachment", url, text)
 
     def attachment_image(self, url, **kw):
@@ -697,7 +708,7 @@ class Formatter(FormatterBase):
 
     # Special markup for syntax highlighting ##################################
 
-    def code_area(self, on, codeId, codeType='code', show=0, start=-1, step=-1):
+    def code_area(self, on, codeId, codeType='code', show=0, start=-1, step=-1, msg=None):
         if on:
             result = self._output_EOL_BLK(u"::")
             self._indentation += 3
@@ -858,10 +869,16 @@ class Formatter(FormatterBase):
             return self._openLists.pop().end()
 
     def definition_term(self, on, compact=0, **kw):
+        try:
+            value = self._openLists[-1].term(on)
+        except:
+            self._openLists.append(self.DefinitionList(self))
+            
         # TODO May have empty content in which case it should be suppressed
         return self._openLists[-1].term(on)
 
     def definition_desc(self, on, **kw):
+
         # TODO May have empty content in which case it must be a comment in
         #      reST to make a definition item
         return self._openLists[-1].description(on)
