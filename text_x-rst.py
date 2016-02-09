@@ -15,7 +15,7 @@ from MoinMoin import config, wikiutil
 
 attachment_schemas = ["attachment", "inline", "drawing"]
 url_pattern = (u'http|https|ftp|nntp|news|mailto|telnet|wiki|file|' +
-               u'|'.join(attachment_schemas) + 
+               u'|'.join(attachment_schemas) +
               (config.url_schemas and u'|' + u'|'.join(config.url_schemas) or ''))
 
 
@@ -177,6 +177,7 @@ class Formatter(FormatterBase):
         @type: int
         """
         self._contentsDepth = None
+        self._table = None
 
     # Helpers #################################################################
     
@@ -619,6 +620,8 @@ class Formatter(FormatterBase):
     def text(self, text, **kw):
         # TODO It would be long lines could be folded if they were folded in
         #      the original
+        if self._table is not None:
+            return self._output(text.strip())
         return self._output(text)
 
     # TODO reST needs inline markup separated from surrounding; must be
@@ -737,6 +740,8 @@ class Formatter(FormatterBase):
         if on:
             return self._output()
         else:
+            if self._table is not None:
+                return self._output()
             return self._output_EOL_BLK()
 
     def rule(self, size=0, **kw):
@@ -873,7 +878,7 @@ class Formatter(FormatterBase):
             value = self._openLists[-1].term(on)
         except:
             self._openLists.append(self.DefinitionList(self))
-            
+
         # TODO May have empty content in which case it should be suppressed
         return self._openLists[-1].term(on)
 
@@ -895,21 +900,53 @@ class Formatter(FormatterBase):
 
     # Tables ##################################################################
     
-    # TODO
+    class ListTable():
+
+        def __init__(self, formatter):
+            self._formatter = formatter
+
+        def begin(self):
+            result = self._formatter._output_EOL(u".. list-table::") + \
+                self._formatter._output_EOL_BLK(u"")
+            self._formatter._indentation += 3
+            return result
+
+        def end(self):
+            result = self._formatter._output_EOL_BLK(u"")
+            self._formatter._indentation -= 3
+            return result
+
+        def row(self, on, attrs={}, **kw):
+            if on:
+                result = self._formatter._output("* ")
+                self._formatter._indentation += 2
+                return result
+            else:
+                result = self._formatter._output(u"")
+                self._formatter._indentation -= 2
+                return result
+
+        def cell(self, on, attrs={}, **kw):
+            if on:
+                result = self._formatter._output(u"- ")
+                return result
+            else:
+                return self._formatter._output_EOL(u"")
 
     def table(self, on, attrs={}, **kw):
         if on:
-            self._collectors.append(u"")
-            return self._output()
+            self._table = self.ListTable(self)
+            return self._table.begin()
         else:
-            self._collectors.pop()
-            return self._output_EOL_BLK(u"[Table not converted]")
+            table = self._table
+            self._table = None
+            return table.end()
 
     def table_row(self, on, attrs={}, **kw):
-        return u""
+        return self._table.row(on, attrs, **kw)
 
     def table_cell(self, on, attrs={}, **kw):
-        return u""
+        return self._table.cell(on, attrs, **kw)
 
     # Dynamic stuff / plugins #################################################
     
